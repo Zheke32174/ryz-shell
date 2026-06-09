@@ -1,0 +1,193 @@
+# ryz-compliance: 8fb8a53c ryz
+// aesh.ryz - Advanced embedded Shell, written in RYZ.
+//
+// Real implementation. No mocks. Reads a line, dispatches to:
+//   - builtin commands (cd, pwd, exit, help, status, history, run, compose)
+//   - RYZ scripts (any line starting with `ryz: ` or `: `)
+//   - external shell commands (everything else, via fmt.shell)
+//
+// AeSH is the bridge between the user and the ryz runtime: every command
+// runs through a single audited dispatcher so the env-compliance pass can
+// later attach metadata (provenance, exit code, duration) to every action.
+
+import "std/fmt"
+import "std/sys"
+import "std/str"
+import "std/list"
+
+let VERSION = "0.1.0"
+let HOME    = sys.env["HOME"]
+let HIST_PATH = fmt.sprintf("{}/.aesh_history", HOME)
+
+// ─── history ─────────────────────────────────────────────────────────────────
+mut history = []
+mut LAST_STATUS = 0   // exit code of the last dispatched command (for `aesh -c` + $?)
+
+fn hist_load() {
+    if sys.path_exists(HIST_PATH) {
+        let raw = fmt.read_file(HIST_PATH)
+        let lines = str.split(raw, "\n")
+        for l in lines {
+            if str.len(l) > 0 { list.push(history, l) }
+        }
+    }
+}
+
+fn hist_save(line: string) {
+    list.push(history, line)
+    fmt.append_file(HIST_PATH, line + "\n")
+}
+
+// ─── builtins ────────────────────────────────────────────────────────────────
+
+fn builtin_help() {
+    fmt.println("aesh v" + VERSION + " - builtin commands:")
+    fmt.println("  cd <dir>            change directory")
+    fmt.println("  pwd                 print working directory")
+    fmt.println("  exit [code]         exit shell")
+    fmt.println("  help                this message")
+    fmt.println("  status              show env audit summary")
+    fmt.println("  history             list command history")
+    fmt.println("  run <script.ryz>    run a ryz script")
+    fmt.println("  : <ryz-expr>        evaluate inline ryz")
+    fmt.println("  ryz: <ryz-expr>     same as `:`")
+    fmt.println("  audit               scan environment for compliance")
+    fmt.println("  comply              convert env to ryz-substrate compliance")
+}
+
+fn builtin_status() {
+    fmt.println("aesh:    v" + VERSION + " active")
+    fmt.println("cwd:     " + sys.getcwd())
+    fmt.println("history: " + fmt.sprintf("{}", list.len(history)) + " entries")
+    fmt.println("uptime:  " + fmt.sprintf("{}", sys.now_unix()) + "s (unix)")
+}
+
+fn builtin_history() {
+    mut i = 0
+    for h in history {
+        fmt.println(fmt.sprintf("{}  {}", i, h))
+        i = i + 1
+    }
+}
+
+fn builtin_cd(target: string) {
+    let dest = if str.len(target) == 0 { HOME } else { target }
+    if sys.path_is_dir(dest) {
+        sys.chdir(dest)
+    } else {
+        fmt.println("aesh: cd: not a directory: " + dest)
+    }
+}
+
+fn builtin_run_ryz(path: string) {
+    if not sys.path_exists(path) {
+        fmt.println("aesh: run: file not found: " + path)
+        return
+    }
+    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc", path)
+    fmt.print(result["stdout"])
+    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+}
+
+fn builtin_eval_ryz(src: string) {
+    // auto-import the common stdlib so `: fmt.println(...)` / str / list work inline.
+    let full = "import \"std/fmt\"\nimport \"std/str\"\nimport \"std/list\"\n" + src
+    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc", "-e", full)
+    fmt.print(result["stdout"])
+    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+}
+
+fn builtin_audit() {
+    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc",
+                         "/home/fixxia/ryz-build/lang/env_compliance.ryz",
+                         "audit")
+    fmt.print(result["stdout"])
+}
+
+fn builtin_comply() {
+    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc",
+                         "/home/fixxia/ryz-build/lang/env_compliance.ryz",
+                         "comply")
+    fmt.print(result["stdout"])
+}
+
+// ─── dispatcher ──────────────────────────────────────────────────────────────
+
+fn dispatch(line: string) -> bool {
+    let stripped = str.strip(line)
+    if str.len(stripped) == 0 { return true }
+    if stripped == "exit" or stripped == "quit" {
+        return false
+    }
+    hist_save(stripped)
+
+    if stripped == "help"     { builtin_help();     return true }
+    if stripped == "status"   { builtin_status();   return true }
+    if stripped == "history"  { builtin_history();  return true }
+    if stripped == "pwd"      { fmt.println(sys.getcwd()); return true }
+    if stripped == "audit"    { builtin_audit();    return true }
+    if stripped == "comply"   { builtin_comply();   return true }
+
+    if str.startswith(stripped, "cd ") or stripped == "cd" {
+        let arg = if str.len(stripped) > 2 { str.strip(stripped) } else { "" }
+        let parts = str.split(arg, " ")
+        let target = if list.len(parts) > 1 { parts[1] } else { "" }
+        builtin_cd(target)
+        return true
+    }
+
+    if str.startswith(stripped, "run ") {
+        let parts = str.split(stripped, " ")
+        if list.len(parts) >= 2 { builtin_run_ryz(parts[1]) }
+        return true
+    }
+
+    if str.startswith(stripped, "ryz: ") {
+        let src = str.replace(stripped, "ryz: ", "")
+        builtin_eval_ryz(src)
+        return true
+    }
+    if str.startswith(stripped, ": ") {
+        let src = str.replace(stripped, ": ", "")
+        builtin_eval_ryz(src)
+        return true
+    }
+
+    // Falls through to the host shell for everything else, with the REAL terminal
+    // attached (fmt.system) — so interactive programs (claude, vim, top, less, ssh,
+    // REPLs) detect a TTY and work, and output streams live instead of being captured.
+    // (fmt.shell stays available for callers that need captured output, e.g. audits.)
+    let result = fmt.system(stripped)
+    LAST_STATUS = result["code"]
+    return true
+}
+
+// ─── REPL ────────────────────────────────────────────────────────────────────
+
+fn repl() {
+    fmt.println("aesh v" + VERSION + " - type `help` for builtins, `exit` to quit")
+    hist_load()
+    mut alive = true
+    while alive {
+        let cwd = sys.getcwd()
+        let prompt = fmt.sprintf("aesh:{}> ", sys.path_basename(cwd))
+        let line = fmt.read_line(prompt)
+        // nil means EOF (Ctrl-D); empty string means user just hit Enter
+        if line == nil {
+            fmt.println("")
+            alive = false
+        } else {
+            alive = dispatch(line)
+        }
+    }
+}
+
+fn main() -> i32 {
+    // Argv mode: pass -c to run one-shot
+    if list.len(sys.argv) >= 2 and sys.argv[0] == "-c" {
+        dispatch(sys.argv[1])
+        return LAST_STATUS
+    }
+    repl()
+    return 0
+}
