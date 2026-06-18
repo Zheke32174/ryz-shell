@@ -9,6 +9,10 @@
 // AeSH is the bridge between the user and the ryz runtime: every command
 // runs through a single audited dispatcher so the env-compliance pass can
 // later attach metadata (provenance, exit code, duration) to every action.
+//
+// Public repo note: this source is runnable through ./tools/ryzc, a public
+// compatibility runner for AeSH. The private RYZ native backend remains in
+// the private RYZ toolchain repo.
 
 import "std/fmt"
 import "std/sys"
@@ -18,6 +22,8 @@ import "std/list"
 let VERSION = "0.1.0"
 let HOME    = sys.env["HOME"]
 let HIST_PATH = fmt.sprintf("{}/.aesh_history", HOME)
+let RYZC = "./tools/ryzc"
+let ENV_COMPLIANCE = "./env_compliance.ryz"
 
 // ─── history ─────────────────────────────────────────────────────────────────
 mut history = []
@@ -84,7 +90,7 @@ fn builtin_run_ryz(path: string) {
         fmt.println("aesh: run: file not found: " + path)
         return
     }
-    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc", path)
+    let result = fmt.exec(RYZC, path)
     fmt.print(result["stdout"])
     if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
 }
@@ -92,22 +98,26 @@ fn builtin_run_ryz(path: string) {
 fn builtin_eval_ryz(src: string) {
     // auto-import the common stdlib so `: fmt.println(...)` / str / list work inline.
     let full = "import \"std/fmt\"\nimport \"std/str\"\nimport \"std/list\"\n" + src
-    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc", "-e", full)
+    let result = fmt.exec(RYZC, "-e", full)
     fmt.print(result["stdout"])
     if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
 }
 
 fn builtin_audit() {
-    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc",
-                         "/home/fixxia/ryz-build/lang/env_compliance.ryz",
-                         "audit")
+    if not sys.path_exists(ENV_COMPLIANCE) {
+        fmt.println("aesh: audit unavailable: env_compliance.ryz is not bundled in this public repo")
+        return
+    }
+    let result = fmt.exec(RYZC, ENV_COMPLIANCE, "audit")
     fmt.print(result["stdout"])
 }
 
 fn builtin_comply() {
-    let result = fmt.exec("/home/fixxia/ryz-build/bin/ryzc",
-                         "/home/fixxia/ryz-build/lang/env_compliance.ryz",
-                         "comply")
+    if not sys.path_exists(ENV_COMPLIANCE) {
+        fmt.println("aesh: comply unavailable: env_compliance.ryz is not bundled in this public repo")
+        return
+    }
+    let result = fmt.exec(RYZC, ENV_COMPLIANCE, "comply")
     fmt.print(result["stdout"])
 }
 
