@@ -1,7 +1,10 @@
 # AeSH — The RYZ Adaptive Shell
 
-AeSH is a shell written in the [RYZ programming language](https://github.com/Zheke32174/ryz).
-It serves as the interactive interface to the RYZ runtime and a fully audited command dispatcher.
+AeSH is an interactive shell written in the [RYZ programming language](https://github.com/Zheke32174/ryz). It serves as the command interface for the RYZ runtime and as a proving ground for shell/userland behavior in the experimental ryzOS direction.
+
+## Why this matters
+
+A custom programming language becomes much more credible when real system software is written in it. AeSH demonstrates that RYZ can support command dispatch, scripting, history, external command passthrough, and non-interactive shell execution.
 
 ## Features
 
@@ -13,10 +16,10 @@ It serves as the interactive interface to the RYZ runtime and a fully audited co
 
 ## Quick Start
 
-Requires: Python 3, gcc
+Requires: Python 3, GCC, and the RYZ toolchain.
 
 ```bash
-# Compile aesh to native ELF
+# Compile AeSH to native ELF
 python3 ryznative.py aesh.ryz -o aesh
 
 # Run interactively
@@ -25,6 +28,14 @@ python3 ryznative.py aesh.ryz -o aesh
 # Run a single command
 ./aesh -c "help"
 ```
+
+## Portfolio framing
+
+> AeSH is a shell written in RYZ, a custom systems programming language. It is used to validate the RYZ runtime/toolchain against real shell behavior: builtins, script mode, command dispatch, history, and external process execution.
+
+## Status
+
+Experimental. This repository is suitable as a public-facing companion to the main RYZ language/toolchain repo, but production-shell claims should be avoided unless backed by current tests and demos.
 
 ## License
 
