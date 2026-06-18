@@ -1,0 +1,11 @@
+.git
+.github
+build
+dist
+*.tar.gz
+*.deb
+*.sha256
+__pycache__
+*.pyc
+.env
+.env.*
