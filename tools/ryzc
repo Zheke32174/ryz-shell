@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""
+Public AeSH runner for ryz-shell.
+
+This is a small, public compatibility runner that makes the AeSH shell usable
+from this repository without publishing the private RYZ native backend. It is
+not the full private RYZ compiler. It implements the AeSH command path and a
+small inline RYZ-eval subset used by the shell demos.
+
+Supported public commands:
+  python3 tools/ryzc --check aesh.ryz
+  python3 tools/ryzc aesh.ryz
+  python3 tools/ryzc aesh.ryz -c "help"
+  python3 tools/ryzc -e 'fmt.println("x", 6*7)'
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import os
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+VERSION = "0.1.0"
+ROOT = Path(__file__).resolve().parents[1]
+AESH_SOURCE = ROOT / "aesh.ryz"
+HIST_PATH = Path(os.environ.get("AESH_HISTORY", str(Path.home() / ".aesh_history")))
+
+
+class SafeEval(ast.NodeVisitor):
+    """Tiny safe evaluator for demo inline expressions."""
+
+    ALLOWED_BINOPS = {
+        ast.Add: lambda a, b: a + b,
+        ast.Sub: lambda a, b: a - b,
+        ast.Mult: lambda a, b: a * b,
+        ast.Div: lambda a, b: a / b,
+        ast.FloorDiv: lambda a, b: a // b,
+        ast.Mod: lambda a, b: a % b,
+    }
+    ALLOWED_UNARY = {
+        ast.UAdd: lambda a: +a,
+        ast.USub: lambda a: -a,
+    }
+
+    def visit_Expression(self, node: ast.Expression) -> Any:
+        return self.visit(node.body)
+
+    def visit_Constant(self, node: ast.Constant) -> Any:
+        if isinstance(node.value, (str, int, float, bool)) or node.value is None:
+            return node.value
+        raise ValueError("unsupported constant")
+
+    def visit_BinOp(self, node: ast.BinOp) -> Any:
+        fn = self.ALLOWED_BINOPS.get(type(node.op))
+        if not fn:
+            raise ValueError("unsupported operator")
+        return fn(self.visit(node.left), self.visit(node.right))
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> Any:
+        fn = self.ALLOWED_UNARY.get(type(node.op))
+        if not fn:
+            raise ValueError("unsupported unary operator")
+        return fn(self.visit(node.operand))
+
+    def generic_visit(self, node: ast.AST) -> Any:
+        raise ValueError(f"unsupported expression: {type(node).__name__}")
+
+
+def safe_eval_expr(expr: str) -> Any:
+    tree = ast.parse(expr, mode="eval")
+    return SafeEval().visit(tree)
+
+
+def split_args(src: str) -> list[str]:
+    # Accept RYZ-ish fmt.println("x", 6*7) argument lists.
+    out: list[str] = []
+    cur: list[str] = []
+    depth = 0
+    quote: str | None = None
+    esc = False
+    for ch in src:
+        if quote:
+            cur.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            cur.append(ch)
+        elif ch in "([{" :
+            depth += 1
+            cur.append(ch)
+        elif ch in ")]}":
+            depth -= 1
+            cur.append(ch)
+        elif ch == "," and depth == 0:
+            out.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+    if cur or src.strip():
+        out.append("".join(cur).strip())
+    return out
+
+
+def eval_ryz_line(src: str) -> int:
+    src = src.strip()
+    if not src:
+        return 0
+    # Drop public demo imports.
+    lines = [ln for ln in src.splitlines() if not ln.strip().startswith("import ")]
+    src = "\n".join(lines).strip()
+    if src.startswith("fmt.println(") and src.endswith(")"):
+        inner = src[len("fmt.println(") : -1]
+        vals = []
+        for part in split_args(inner):
+            vals.append(str(safe_eval_expr(part)))
+        print(" ".join(vals))
+        return 0
+    if src.startswith("fmt.print(") and src.endswith(")"):
+        inner = src[len("fmt.print(") : -1]
+        vals = []
+        for part in split_args(inner):
+            vals.append(str(safe_eval_expr(part)))
+        print("".join(vals), end="")
+        return 0
+    print("ryzc(public): unsupported inline RYZ expression in public runner", file=sys.stderr)
+    print(f"  {src}", file=sys.stderr)
+    return 2
+
+
+def load_history() -> list[str]:
+    try:
+        return [ln.rstrip("\n") for ln in HIST_PATH.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    except FileNotFoundError:
+        return []
+
+
+def append_history(line: str) -> None:
+    try:
+        HIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with HIST_PATH.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+class AeSH:
+    def __init__(self) -> None:
+        self.history = load_history()
+        self.last_status = 0
+
+    def help(self) -> int:
+        print(f"aesh v{VERSION} - builtin commands:")
+        print("  cd <dir>            change directory")
+        print("  pwd                 print working directory")
+        print("  exit [code]         exit shell")
+        print("  help                this message")
+        print("  status              show shell/runtime summary")
+        print("  history             list command history")
+        print("  run <script.ryz>    run a RYZ script through the public runner")
+        print("  : <ryz-expr>        evaluate supported inline RYZ demo expressions")
+        print("  ryz: <ryz-expr>     same as `:`")
+        print("  audit               unavailable in public runner")
+        print("  comply              unavailable in public runner")
+        return 0
+
+    def status(self) -> int:
+        print(f"aesh:    v{VERSION} active")
+        print(f"cwd:     {os.getcwd()}")
+        print(f"history: {len(self.history)} entries")
+        print(f"uptime:  {int(time.time())}s (unix)")
+        print("runner:  public compatibility runner")
+        return 0
+
+    def run_script(self, path: str) -> int:
+        script = Path(path)
+        if not script.exists():
+            print(f"aesh: run: file not found: {path}", file=sys.stderr)
+            return 1
+        if script.resolve() == AESH_SOURCE.resolve():
+            return self.repl()
+        text = script.read_text(encoding="utf-8")
+        status = 0
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith(("//", "#", "import ")):
+                continue
+            if line.startswith("fmt.println") or line.startswith("fmt.print"):
+                status = eval_ryz_line(line)
+            else:
+                print(f"ryzc(public): unsupported statement in {path}: {line}", file=sys.stderr)
+                status = 2
+                break
+        return status
+
+    def dispatch(self, line: str) -> bool:
+        stripped = line.strip()
+        if not stripped:
+            return True
+        if stripped in {"exit", "quit"}:
+            self.last_status = 0
+            return False
+        append_history(stripped)
+        self.history.append(stripped)
+
+        if stripped == "help":
+            self.last_status = self.help()
+            return True
+        if stripped == "status":
+            self.last_status = self.status()
+            return True
+        if stripped == "history":
+            for i, item in enumerate(self.history):
+                print(f"{i}  {item}")
+            self.last_status = 0
+            return True
+        if stripped == "pwd":
+            print(os.getcwd())
+            self.last_status = 0
+            return True
+        if stripped in {"audit", "comply"}:
+            print(f"aesh: {stripped}: unavailable in public runner")
+            self.last_status = 2
+            return True
+        if stripped.startswith("cd ") or stripped == "cd":
+            target = stripped[3:].strip() if stripped.startswith("cd ") else str(Path.home())
+            try:
+                os.chdir(os.path.expanduser(target))
+                self.last_status = 0
+            except OSError as exc:
+                print(f"aesh: cd: {exc}", file=sys.stderr)
+                self.last_status = 1
+            return True
+        if stripped.startswith("run "):
+            parts = shlex.split(stripped)
+            self.last_status = self.run_script(parts[1]) if len(parts) >= 2 else 2
+            return True
+        if stripped.startswith("ryz: "):
+            self.last_status = eval_ryz_line(stripped[len("ryz: ") :])
+            return True
+        if stripped.startswith(": "):
+            self.last_status = eval_ryz_line(stripped[2:])
+            return True
+
+        self.last_status = subprocess.call(stripped, shell=True)
+        return True
+
+    def repl(self) -> int:
+        print(f"aesh v{VERSION} - type `help` for builtins, `exit` to quit")
+        alive = True
+        while alive:
+            try:
+                line = input(f"aesh:{Path.cwd().name}> ")
+            except EOFError:
+                print("")
+                break
+            alive = self.dispatch(line)
+        return self.last_status
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="ryzc", add_help=True)
+    p.add_argument("script", nargs="?", help="RYZ script to execute")
+    p.add_argument("script_args", nargs=argparse.REMAINDER)
+    p.add_argument("--check", dest="check", action="store_true", help="check script exists/parses enough for public runner")
+    p.add_argument("-e", dest="eval_src", help="evaluate a supported inline RYZ expression")
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--check":
+        if len(argv) < 2:
+            print("ryzc(public): --check requires a file", file=sys.stderr)
+            return 2
+        path = Path(argv[1])
+        if not path.exists():
+            print(f"ryzc(public): not found: {path}", file=sys.stderr)
+            return 1
+        print(f"ryzc(public): check ok: {path}")
+        return 0
+    if argv and argv[0] == "-e":
+        if len(argv) < 2:
+            print("ryzc(public): -e requires source", file=sys.stderr)
+            return 2
+        return eval_ryz_line(argv[1])
+
+    if not argv:
+        print("usage: ryzc [--check file] [-e source] file.ryz [-c command]", file=sys.stderr)
+        return 2
+
+    script = Path(argv[0])
+    rest = argv[1:]
+    if not script.exists():
+        print(f"ryzc(public): not found: {script}", file=sys.stderr)
+        return 1
+
+    shell = AeSH()
+    if rest and rest[0] == "-c":
+        if len(rest) < 2:
+            print("aesh: -c requires a command", file=sys.stderr)
+            return 2
+        shell.dispatch(rest[1])
+        return shell.last_status
+    return shell.repl()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
