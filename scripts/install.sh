@@ -3,62 +3,38 @@ set -eu
 
 OWNER="Zheke32174"
 REPO="ryz-shell"
-VERSION="${AESH_VERSION:-latest}"
-PREFIX="${PREFIX:-/usr/local}"
-BIN_DIR="${BIN_DIR:-$PREFIX/bin}"
+APP_DIR="${APP_DIR:-$HOME/.local/share/aesh}"
+BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 NAME="aesh"
+REPO_URL="https://github.com/${OWNER}/${REPO}.git"
 
-uname_s="$(uname -s 2>/dev/null || echo unknown)"
-uname_m="$(uname -m 2>/dev/null || echo unknown)"
-
-case "$uname_s" in
-  Linux) os="linux" ;;
-  Android) os="android" ;;
-  *)
-    echo "Unsupported OS: $uname_s" >&2
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Need $1 to install AeSH." >&2
     exit 1
-    ;;
-esac
+  }
+}
 
-case "$uname_m" in
-  x86_64|amd64) arch="x86_64" ;;
-  aarch64|arm64) arch="aarch64" ;;
-  *)
-    echo "Unsupported architecture: $uname_m" >&2
-    exit 1
-    ;;
-esac
+need python3
+need git
 
-asset="aesh-${os}-${arch}"
-base="https://github.com/${OWNER}/${REPO}/releases"
-if [ "$VERSION" = "latest" ]; then
-  url="${base}/latest/download/${asset}"
+mkdir -p "$BIN_DIR"
+
+if [ -d "$APP_DIR/.git" ]; then
+  echo "Updating AeSH in $APP_DIR"
+  git -C "$APP_DIR" pull --ff-only
 else
-  url="${base}/download/${VERSION}/${asset}"
+  echo "Cloning AeSH into $APP_DIR"
+  rm -rf "$APP_DIR"
+  git clone --depth=1 "$REPO_URL" "$APP_DIR"
 fi
 
-tmp="$(mktemp -t aesh.XXXXXX)"
-cleanup() { rm -f "$tmp"; }
-trap cleanup EXIT INT TERM
-
-echo "Downloading $asset from $url"
-if command -v curl >/dev/null 2>&1; then
-  curl -fL "$url" -o "$tmp"
-elif command -v wget >/dev/null 2>&1; then
-  wget -O "$tmp" "$url"
-else
-  echo "Need curl or wget to install AeSH." >&2
-  exit 1
-fi
-
-chmod +x "$tmp"
-
-if [ -w "$BIN_DIR" ]; then
-  install -m 0755 "$tmp" "$BIN_DIR/$NAME"
-else
-  echo "Installing to $BIN_DIR requires sudo/admin rights."
-  sudo install -m 0755 "$tmp" "$BIN_DIR/$NAME"
-fi
+cat > "$BIN_DIR/$NAME" <<EOF
+#!/usr/bin/env sh
+exec python3 "$APP_DIR/tools/ryzc" "$APP_DIR/aesh.ryz" "\$@"
+EOF
+chmod +x "$BIN_DIR/$NAME"
 
 echo "Installed: $BIN_DIR/$NAME"
-"$BIN_DIR/$NAME" -c "help" || true
+"$BIN_DIR/$NAME" -c "help" >/dev/null
+echo "AeSH install smoke: ok"
