@@ -4,6 +4,25 @@ AeSH is an interactive shell written in **RYZ**, a custom systems programming la
 
 The main RYZ language/toolchain repository is currently private. This public repo exists to showcase one of the language's most important artifacts: a shell written in the language itself.
 
+## Install
+
+The intended public install path is a prebuilt AeSH binary published through GitHub Releases. This lets people install and use the shell without publishing the private RYZ compiler/interpreter/native backend.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zheke32174/ryz-shell/master/scripts/install.sh | bash
+```
+
+Manual install once a release asset exists:
+
+```bash
+curl -L -o aesh https://github.com/Zheke32174/ryz-shell/releases/latest/download/aesh-linux-x86_64
+chmod +x aesh
+sudo install -m 0755 aesh /usr/local/bin/aesh
+aesh -c "help"
+```
+
+See [`INSTALL.md`](INSTALL.md) for the full model.
+
 ## Why this matters
 
 A custom programming language becomes much more credible when real system software is written in it. AeSH demonstrates that RYZ can support command dispatch, scripting, history, external command passthrough, and non-interactive shell execution.
@@ -16,9 +35,9 @@ A custom programming language becomes much more credible when real system softwa
 - Persistent history at `~/.aesh_history`
 - `-c <cmd>` non-interactive mode for scripting
 
-## Quick Start
+## Build from source
 
-Requires: Python 3, GCC, and access to the private RYZ toolchain.
+Building from source requires Python 3, GCC, and access to the private RYZ toolchain.
 
 ```bash
 # From a machine that has the private RYZ repo checked out:
@@ -31,7 +50,7 @@ python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o aesh
 ./aesh -c "help"
 ```
 
-This public repository intentionally does **not** ship the RYZ compiler, interpreter, or native backend. It only showcases AeSH source and documentation.
+This public repository intentionally does **not** ship the RYZ compiler, interpreter, or native backend. It showcases AeSH source, documentation, and the install path for prebuilt shell binaries.
 
 ## Portfolio framing
 
