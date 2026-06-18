@@ -18,11 +18,11 @@ A custom programming language becomes much more credible when real system softwa
 
 ## Quick Start
 
-Requires: Python 3, GCC, and the private RYZ toolchain.
+Requires: Python 3, GCC, and access to the private RYZ toolchain.
 
 ```bash
-# Compile AeSH to native ELF
-python3 ryznative.py aesh.ryz -o aesh
+# From a machine that has the private RYZ repo checked out:
+python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o aesh
 
 # Run interactively
 ./aesh
@@ -30,6 +30,8 @@ python3 ryznative.py aesh.ryz -o aesh
 # Run a single command
 ./aesh -c "help"
 ```
+
+This public repository intentionally does **not** ship the RYZ compiler, interpreter, or native backend. It only showcases AeSH source and documentation.
 
 ## Portfolio framing
 
