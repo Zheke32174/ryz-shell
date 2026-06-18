@@ -1,0 +1,20 @@
+FROM python:3.12-alpine
+
+ARG VERSION="0.1.0"
+ARG SOURCE_URL="https://github.com/Zheke32174/ryz-shell"
+
+LABEL org.opencontainers.image.title="AeSH"
+LABEL org.opencontainers.image.description="AeSH, the RYZ Adaptive Shell, packaged for GitHub Packages."
+LABEL org.opencontainers.image.source="$SOURCE_URL"
+LABEL org.opencontainers.image.version="$VERSION"
+LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
+
+WORKDIR /opt/aesh
+COPY . /opt/aesh
+
+RUN chmod +x /opt/aesh/tools/ryzc /opt/aesh/bin/aesh || true \
+    && python3 /opt/aesh/tools/ryzc --check /opt/aesh/aesh.ryz \
+    && python3 /opt/aesh/tools/ryzc /opt/aesh/aesh.ryz -c "help" >/dev/null
+
+ENTRYPOINT ["python3", "/opt/aesh/tools/ryzc", "/opt/aesh/aesh.ryz"]
+CMD ["-c", "help"]
