@@ -1,83 +1,80 @@
 # Installing AeSH
 
-AeSH is public as a shell artifact, but the main RYZ language/toolchain repository is private.
+AeSH is public as a shell artifact. The full RYZ language/toolchain repository remains private, but this repo now includes a small public compatibility runner so AeSH can be cloned and used immediately.
 
-That means there are two paths:
-
-1. **Install and use AeSH** from a prebuilt binary release.
-2. **Build AeSH from source** only if you have access to the private RYZ toolchain.
-
-## Recommended public install path
-
-Once a release binary is uploaded, public users should install AeSH with:
+## Clone and run
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Zheke32174/ryz-shell/master/scripts/install.sh | bash
+git clone https://github.com/Zheke32174/ryz-shell.git
+cd ryz-shell
+python3 tools/ryzc --check aesh.ryz
+python3 tools/ryzc aesh.ryz -c "help"
+python3 tools/ryzc aesh.ryz -c "pwd"
+python3 tools/ryzc aesh.ryz -c "echo hi"
 ```
 
-The installer expects a GitHub Release asset named for the platform, for example:
+Launcher form:
+
+```bash
+sh bin/aesh -c "help"
+sh bin/aesh
+```
+
+Smoke test:
+
+```bash
+sh scripts/smoke.sh
+```
+
+## Install command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zheke32174/ryz-shell/master/scripts/install.sh | sh
+```
+
+The installer clones the repo into a local application directory and installs an `aesh` launcher into a bin directory.
+
+Default install locations:
 
 ```text
-aesh-linux-x86_64
-aesh-linux-aarch64
+~/.local/share/aesh
+~/.local/bin/aesh
 ```
 
-## Manual install
+Custom locations:
 
 ```bash
-curl -L -o aesh https://github.com/Zheke32174/ryz-shell/releases/latest/download/aesh-linux-x86_64
-chmod +x aesh
-sudo install -m 0755 aesh /usr/local/bin/aesh
-aesh -c "help"
+APP_DIR="$HOME/apps/aesh" BIN_DIR="$HOME/bin" sh scripts/install.sh
 ```
 
-## Build from source
+## Public runner scope
 
-Building from source requires the private RYZ toolchain:
+`tools/ryzc` is a public AeSH compatibility runner. It supports:
+
+- `python3 tools/ryzc --check aesh.ryz`
+- `python3 tools/ryzc aesh.ryz -c "help"`
+- `python3 tools/ryzc aesh.ryz -c "pwd"`
+- external command passthrough, such as `echo hi`
+- interactive AeSH REPL
+- limited inline demo eval, such as `: fmt.println("x", 6*7)`
+
+It is intentionally not the full private RYZ native backend.
+
+## Native binary build
+
+Building a native binary still requires the private RYZ toolchain:
 
 ```bash
 python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o aesh
 ./aesh -c "help"
 ```
 
-The public repo intentionally does not include:
+## Future release binaries
 
-- RYZ compiler
-- RYZ interpreter
-- RYZ native backend
-- private standard-library implementation
-- private language/toolchain tests
-
-## What works without the private toolchain
-
-A prebuilt AeSH binary should support:
-
-- starting the shell
-- builtin commands such as `help`, `pwd`, `status`, and `history`
-- external command passthrough
-- one-shot command mode with `aesh -c "help"`
-
-RYZ script evaluation features require a RYZ interpreter/toolchain path to be available on the user's machine.
-
-## Release checklist
-
-Before publishing an AeSH binary release:
-
-```bash
-./aesh -c "help"
-./aesh -c "pwd"
-./aesh -c "status"
-```
-
-Then upload the binary as a GitHub Release asset named:
+Native compiled release assets can be added later, for example:
 
 ```text
 aesh-linux-x86_64
-```
-
-Optional later assets:
-
-```text
 aesh-linux-aarch64
 aesh-android-aarch64
 ```
