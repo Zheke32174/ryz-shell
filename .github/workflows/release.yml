@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version/tag, for example v0.1.0'
+        required: false
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            VERSION="$GITHUB_REF_NAME"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="v0.1.0"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "package_version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.package_version }}" sh scripts/package.sh
+          cat > RELEASE_NOTES.md <<EOF
+          # AeSH ${{ steps.version.outputs.version }}
+
+          Public AeSH release.
+
+          Assets include:
+          - source-runnable tarball
+          - Debian package
+          - SHA256 checksums
+
+          GitHub Package:
+          \`ghcr.io/zheke32174/ryz-shell:latest\`
+          EOF
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "AeSH $VERSION" --notes-file RELEASE_NOTES.md
+          fi
