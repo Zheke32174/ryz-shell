@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+SELF="$0"
+case "$SELF" in
+  /*) SELF_DIR="$(dirname "$SELF")" ;;
+  *) SELF_DIR="$(dirname "$(pwd)/$SELF")" ;;
+esac
+ROOT="$(cd "$SELF_DIR/.." && pwd)"
+exec python3 "$ROOT/tools/ryzc" "$ROOT/aesh.ryz" "$@"
