@@ -1,0 +1,28 @@
+name: Build packages
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build AeSH packages
+        run: sh scripts/package.sh
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aesh-packages
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/*.deb
+            dist/*.deb.sha256
