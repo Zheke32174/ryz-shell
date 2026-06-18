@@ -38,6 +38,34 @@ The installer clones this repo and installs an `aesh` launcher that runs `aesh.r
 curl -fsSL https://raw.githubusercontent.com/Zheke32174/ryz-shell/master/scripts/install.sh | sh
 ```
 
+## Packages
+
+Build release packages locally:
+
+```bash
+sh scripts/package.sh
+# or
+make package
+```
+
+Outputs:
+
+```text
+dist/aesh-0.1.0-linux-all.tar.gz
+dist/aesh-0.1.0-linux-all.tar.gz.sha256
+dist/aesh_0.1.0_all.deb
+dist/aesh_0.1.0_all.deb.sha256
+```
+
+Install the Debian package:
+
+```bash
+sudo dpkg -i dist/aesh_0.1.0_all.deb
+aesh -c "help"
+```
+
+See [`PACKAGING.md`](PACKAGING.md) for release packaging details.
+
 ## Why this matters
 
 A custom programming language becomes much more credible when real system software is written in it. AeSH demonstrates that RYZ can support command dispatch, scripting, history, external command passthrough, and non-interactive shell execution.
