@@ -1,0 +1,37 @@
+apiVersion: modos.pleiades/v1alpha1
+kind: Component
+metadata:
+  name: aesh-domain-shell
+  repository: Zheke32174/ryz-shell
+  visibility: public
+  lifecycle: operational
+  defaultBranch: master
+spec:
+  roles:
+    - interactive-shell
+    - future-domain-shell
+    - command-surface
+  authority: proposal
+  inputs:
+    - steward-commands
+    - domain-object-views
+    - capability-discovery
+  outputs:
+    - typed-domain-requests
+    - local-command-results
+    - steward-visible-audit-context
+  capabilitiesProvided:
+    - shell.interactive
+    - domain.request.compose
+    - object.inspect
+  capabilitiesRequired:
+    - identity.user.local
+    - capability.query
+    - audit.read.scoped
+  dataClasses:
+    - public
+    - private
+    - untrusted
+  failurePolicy: degrade-local
+  promotionPolicy: signed-pr
+  notes: AeSH composes typed requests and presents results; it must not bypass the PDK capability broker or collapse domain and local authority.
