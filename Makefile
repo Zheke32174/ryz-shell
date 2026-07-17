@@ -10,6 +10,7 @@ DEB_ROOT := $(BUILD_DIR)/deb/$(PACKAGE)_$(VERSION)_$(ARCH)
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || date +%s)
 
 .PHONY: check smoke install uninstall package tarball deb clean
+.NOTPARALLEL: package
 
 check:
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
