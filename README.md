@@ -1,106 +1,142 @@
-# AeSH — The RYZ Adaptive Shell
+# AeSH
 
-AeSH is an interactive shell written in **RYZ**, a custom systems programming language. It serves as the command interface for the RYZ runtime and as a proving ground for shell/userland behavior in the experimental ryzOS direction.
+AeSH is the public shell artifact for the RYZ language ecosystem.
 
-The main RYZ language/toolchain repository is currently private. This public repo showcases one of the language's most important artifacts: a shell written in the language itself.
+The shell source in [`aesh.ryz`](aesh.ryz) is written in RYZ. This repository also includes a deliberately constrained Python compatibility runner so the public artifact can be inspected and exercised without the private/full RYZ native backend.
 
-## Quick start
+That distinction matters:
 
-Clone and run AeSH with the bundled public compatibility runner:
+- the **source artifact** demonstrates shell structure and command dispatch in RYZ;
+- the **public compatibility package** executes a supported demonstration subset through `tools/ryzc`;
+- a **native AeSH binary** must be built with the canonical RYZ toolchain and tested separately.
+
+**Version:** [`VERSION`](VERSION)  
+**License:** GPL-3.0-or-later
+
+## Run from a reviewed checkout
 
 ```bash
 git clone https://github.com/Zheke32174/ryz-shell.git
 cd ryz-shell
-python3 tools/ryzc --check aesh.ryz
-python3 tools/ryzc aesh.ryz -c "help"
-python3 tools/ryzc aesh.ryz -c "pwd"
-python3 tools/ryzc aesh.ryz -c "echo hi"
+make check
+sh bin/aesh -c help
+sh bin/aesh -c pwd
 ```
 
-Or use the launcher:
+The compatibility runner supports the public shell path, builtins, history, external command passthrough, non-interactive `-c`, and a small bounded inline-expression demonstration. It is not presented as the full RYZ parser or native compiler.
+
+## Install locally
+
+Review the checkout, then run:
 
 ```bash
-sh bin/aesh -c "help"
-sh bin/aesh
+sh scripts/install.sh
 ```
 
-Run the public smoke test:
+This installs atomically under:
 
-```bash
-sh scripts/smoke.sh
+```text
+~/.local/share/aesh
+~/.local/bin/aesh
 ```
 
-## Install
+The installer does not download or update source. It installs exactly the checkout being reviewed, runs a smoke test first, and restores the previous local installation if the post-install check fails.
 
-The installer clones this repo and installs an `aesh` launcher that runs `aesh.ryz` through the bundled public runner:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Zheke32174/ryz-shell/master/scripts/install.sh | sh
-```
-
-## Packages
-
-Build release packages locally:
+## Build packages
 
 ```bash
-sh scripts/package.sh
-# or
 make package
 ```
 
-Outputs:
+Outputs are written under `dist/`:
 
 ```text
-dist/aesh-0.1.0-linux-all.tar.gz
-dist/aesh-0.1.0-linux-all.tar.gz.sha256
-dist/aesh_0.1.0_all.deb
-dist/aesh_0.1.0_all.deb.sha256
+aesh-<version>-linux-all.tar.gz
+aesh-<version>-linux-all.tar.gz.sha256
+aesh_<version>_all.deb
+aesh_<version>_all.deb.sha256
 ```
 
-Install the Debian package:
+Packaging reads one version from `VERSION`, normalizes archive ownership and timestamps, and verifies the public runner before creating artifacts.
+
+Candidate packages are built in CI for review. GitHub Releases and GHCR images are published only from a matching `v<version>` tag; an ordinary branch push cannot silently replace a release.
+
+See [PACKAGING.md](PACKAGING.md) for package details.
+
+## Supported public behavior
+
+The compatibility runtime currently demonstrates:
+
+- `help`, `status`, `pwd`, `cd`, `history`, `run`, and `exit`;
+- `-c <command>` non-interactive execution;
+- persistent history, configurable through `AESH_HISTORY`;
+- external command execution using the invoking user's ordinary shell authority;
+- bounded inline examples such as `fmt.println("answer", 6*7)`.
+
+It deliberately does not claim:
+
+- complete RYZ language compatibility;
+- native compilation;
+- process isolation;
+- elevated privileges;
+- policy-broker authority;
+- production shell completeness;
+- POSIX conformance certification.
+
+## Security boundary
+
+AeSH is a shell. External commands supplied by the user are intentionally executed with the user's existing operating-system permissions. The compatibility runner does not sandbox those commands and must not be used as an authority broker.
+
+Inline demo evaluation is restricted to a small AST allowlist and supported `fmt.print` / `fmt.println` forms. It does not expose Python imports, attribute access, calls, or arbitrary evaluation.
+
+History files may contain sensitive command text. Set `AESH_HISTORY` to a protected path or disable persistence in a future deployment wrapper where necessary.
+
+## Relationship to RYZ
+
+The canonical language repository owns:
+
+- the language grammar and standard library;
+- the bootstrap interpreter/checker;
+- the RYZ-to-C native emitter;
+- cross-backend regression tests.
+
+This repository owns:
+
+- the public AeSH source artifact;
+- the compatibility runner;
+- public packaging and release mechanics;
+- shell-specific smoke and behavior tests.
+
+Changes to language semantics should be made and tested in RYZ first, then deliberately synchronized here. This repository must not quietly grow into a divergent compiler fork.
+
+## Native build
+
+With access to a reviewed canonical RYZ checkout:
 
 ```bash
-sudo dpkg -i dist/aesh_0.1.0_all.deb
-aesh -c "help"
+python3 /path/to/ryz/bin/ryz build aesh.ryz -o build/aesh --mode safe
+./build/aesh -c help
 ```
 
-See [`PACKAGING.md`](PACKAGING.md) for release packaging details.
+A native artifact should not be published until the source commit, toolchain commit, compiler mode, test results, and artifact hash are recorded.
 
-## Why this matters
-
-A custom programming language becomes much more credible when real system software is written in it. AeSH demonstrates that RYZ can support command dispatch, scripting, history, external command passthrough, and non-interactive shell execution.
-
-## Features
-
-- Builtin commands: `cd`, `pwd`, `exit`, `help`, `status`, `history`, `run`
-- Inline RYZ demo expression execution with `ryz:` or `:`
-- External command passthrough through the host shell
-- Persistent history at `~/.aesh_history`
-- `-c <cmd>` non-interactive mode for scripting
-
-## Public runner versus private toolchain
-
-This repo includes `tools/ryzc`, a small public compatibility runner that makes AeSH clone-and-run without exposing the private RYZ native backend.
-
-The private RYZ repo still contains the full language/toolchain work, including the native backend. This public repo intentionally does **not** ship `ryznative.py`.
-
-## Build a native binary
-
-Native compilation still requires the private RYZ toolchain:
+## Development
 
 ```bash
-python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o aesh
-./aesh -c "help"
+make check
+make package
+sha256sum -c dist/*.sha256
 ```
 
-## Portfolio framing
+A change should preserve:
 
-> AeSH is a shell written in RYZ, a custom systems programming language. It validates the RYZ runtime/toolchain against real shell behavior: builtins, script mode, command dispatch, history, and external process execution.
+1. version agreement among `VERSION`, `aesh.ryz`, and `tools/ryzc`;
+2. non-interactive exit status;
+3. bounded inline evaluation;
+4. reproducible package layout;
+5. tag-only release publication;
+6. honest separation between RYZ source and compatibility execution.
 
 ## Status
 
-Experimental but publicly runnable through the bundled compatibility runner. Native compiled releases can be added later as GitHub Release assets.
-
-## License
-
-GPL-3.0-or-later
+Experimental and publicly runnable. It is a credible shell/source demonstration and packaging target, not yet a production login shell or operating-system authority layer.
