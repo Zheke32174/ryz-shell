@@ -1,87 +1,59 @@
 # AeSH Packaging
 
-AeSH can be shipped as a source-runnable package without exposing the private RYZ native backend.
+The public package contains the RYZ shell source, the constrained compatibility runner, launchers, documentation, and the version file. It does not contain the canonical native RYZ backend.
 
-The public package contains:
-
-```text
-bin/aesh
-resources/aesh.ryz via /usr/share/aesh/aesh.ryz or package root
-tools/ryzc public compatibility runner
-README.md
-INSTALL.md
-```
-
-It does **not** contain:
-
-```text
-ryznative.py
-private RYZ compiler/native backend
-private RYZ test corpus
-private RYZ standard-library implementation beyond the public runner behavior
-```
-
-## Build packages
-
-```bash
-sh scripts/package.sh
-```
-
-or:
+## Build
 
 ```bash
 make package
 ```
 
+The version is read from `VERSION`. Set `SOURCE_DATE_EPOCH` to reproduce archive timestamps explicitly; otherwise the latest Git commit timestamp is used.
+
 Outputs:
 
 ```text
-dist/aesh-0.1.0-linux-all.tar.gz
-dist/aesh-0.1.0-linux-all.tar.gz.sha256
-dist/aesh_0.1.0_all.deb
-dist/aesh_0.1.0_all.deb.sha256
+dist/aesh-<version>-linux-all.tar.gz
+dist/aesh-<version>-linux-all.tar.gz.sha256
+dist/aesh_<version>_all.deb
+dist/aesh_<version>_all.deb.sha256
 ```
 
-The `.deb` is architecture `all` because this public package is shell/Python based. It depends on `python3`.
-
-## Install tarball
+Verify:
 
 ```bash
-tar -xzf dist/aesh-0.1.0-linux-all.tar.gz -C /tmp
-cd /tmp/aesh-0.1.0
-sh bin/aesh -c "help"
+sha256sum -c dist/*.sha256
 ```
 
-## Install `.deb`
+The package is architecture `all` because the public runtime is Python-based.
+
+## Candidate versus release
+
+Pull requests and branch pushes build candidate packages as CI artifacts. They are not releases.
+
+A release occurs only when a pushed tag exactly equals `v$(cat VERSION)`. The release workflow reruns tests, rebuilds packages, verifies checksums, and creates an immutable GitHub Release. GHCR publication uses the same tag-only rule.
+
+## Tarball
 
 ```bash
-sudo dpkg -i dist/aesh_0.1.0_all.deb
-aesh -c "help"
+VERSION=$(cat VERSION)
+tar -xzf "dist/aesh-${VERSION}-linux-all.tar.gz" -C /tmp
+sh "/tmp/aesh-${VERSION}/bin/aesh" -c help
 ```
 
-## Make a GitHub release
-
-After `sh scripts/package.sh`, upload these assets to a release:
-
-```text
-dist/aesh-0.1.0-linux-all.tar.gz
-dist/aesh-0.1.0-linux-all.tar.gz.sha256
-dist/aesh_0.1.0_all.deb
-dist/aesh_0.1.0_all.deb.sha256
-```
-
-Suggested tag:
-
-```text
-v0.1.0
-```
-
-## Native binary later
-
-A native binary release is still possible later using the private RYZ native backend:
+## Debian package
 
 ```bash
-python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o dist/aesh-linux-x86_64
+sudo dpkg -i "dist/aesh_$(cat VERSION)_all.deb"
+aesh -c help
 ```
 
-That native binary can be uploaded as an additional release asset without publishing `ryznative.py`.
+## Native artifact
+
+A native artifact requires the canonical RYZ toolchain:
+
+```bash
+python3 /path/to/ryz/bin/ryz build aesh.ryz -o dist/aesh-linux-x86_64 --mode safe
+```
+
+Do not mix that binary into the architecture-independent compatibility package. Publish it as a separately named artifact with toolchain commit, source commit, build mode, tests, and checksum recorded.
