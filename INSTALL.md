@@ -1,44 +1,29 @@
 # Installing AeSH
 
-AeSH is public as a shell artifact. The full RYZ language/toolchain repository remains private, but this repo now includes a small public compatibility runner so AeSH can be cloned and used immediately.
+AeSH ships as a RYZ source artifact plus a constrained public compatibility runner. Review the source or a versioned release before installing it.
 
-## Clone and run
+## Run from a checkout
 
 ```bash
 git clone https://github.com/Zheke32174/ryz-shell.git
 cd ryz-shell
-python3 tools/ryzc --check aesh.ryz
-python3 tools/ryzc aesh.ryz -c "help"
-python3 tools/ryzc aesh.ryz -c "pwd"
-python3 tools/ryzc aesh.ryz -c "echo hi"
+make check
+sh bin/aesh -c help
 ```
 
-Launcher form:
+## Local user installation
+
+From the reviewed checkout:
 
 ```bash
-sh bin/aesh -c "help"
-sh bin/aesh
+sh scripts/install.sh
 ```
 
-Smoke test:
-
-```bash
-sh scripts/smoke.sh
-```
-
-## Install command
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Zheke32174/ryz-shell/master/scripts/install.sh | sh
-```
-
-The installer clones the repo into a local application directory and installs an `aesh` launcher into a bin directory.
-
-Default install locations:
+Defaults:
 
 ```text
-~/.local/share/aesh
-~/.local/bin/aesh
+application: ~/.local/share/aesh
+launcher:    ~/.local/bin/aesh
 ```
 
 Custom locations:
@@ -47,34 +32,39 @@ Custom locations:
 APP_DIR="$HOME/apps/aesh" BIN_DIR="$HOME/bin" sh scripts/install.sh
 ```
 
+The installer:
+
+1. runs the repository smoke test;
+2. stages source and runner files separately;
+3. swaps the installation atomically;
+4. tests the installed launcher;
+5. restores the previous installation if verification fails.
+
+It does not curl executable text, clone an unreviewed moving branch, or edit shell startup files.
+
+## Package installation
+
+Build from source:
+
+```bash
+make package
+sha256sum -c dist/*.sha256
+sudo dpkg -i "dist/aesh_$(cat VERSION)_all.deb"
+```
+
+For a GitHub Release, verify that the tag matches the version and validate the accompanying checksum before installation.
+
 ## Public runner scope
 
-`tools/ryzc` is a public AeSH compatibility runner. It supports:
-
-- `python3 tools/ryzc --check aesh.ryz`
-- `python3 tools/ryzc aesh.ryz -c "help"`
-- `python3 tools/ryzc aesh.ryz -c "pwd"`
-- external command passthrough, such as `echo hi`
-- interactive AeSH REPL
-- limited inline demo eval, such as `: fmt.println("x", 6*7)`
-
-It is intentionally not the full private RYZ native backend.
+The packaged `tools/ryzc` is an AeSH compatibility runner, not the full RYZ compiler. It supports the documented shell demonstration path, command status, history, external command passthrough, and bounded inline examples.
 
 ## Native binary build
 
-Building a native binary still requires the private RYZ toolchain:
+Use the canonical reviewed RYZ frontend:
 
 ```bash
-python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o aesh
-./aesh -c "help"
+python3 /path/to/ryz/bin/ryz build aesh.ryz -o build/aesh --mode safe
+./build/aesh -c help
 ```
 
-## Future release binaries
-
-Native compiled release assets can be added later, for example:
-
-```text
-aesh-linux-x86_64
-aesh-linux-aarch64
-aesh-android-aarch64
-```
+Record the RYZ commit, AeSH commit, compiler mode, test output, and artifact hash before distributing a native build.
