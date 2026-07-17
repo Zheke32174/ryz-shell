@@ -1,40 +1,40 @@
 #!/usr/bin/env sh
 set -eu
 
-OWNER="Zheke32174"
-REPO="ryz-shell"
-APP_DIR="${APP_DIR:-$HOME/.local/share/aesh}"
-BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
-NAME="aesh"
-REPO_URL="https://github.com/${OWNER}/${REPO}.git"
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+APP_DIR=${APP_DIR:-$HOME/.local/share/aesh}
+BIN_DIR=${BIN_DIR:-$HOME/.local/bin}
+STAGE="${APP_DIR}.stage.$$"
 
-need() {
-  command -v "$1" >/dev/null 2>&1 || {
-    echo "Need $1 to install AeSH." >&2
-    exit 1
-  }
-}
+command -v python3 >/dev/null 2>&1 || { echo "AeSH requires python3" >&2; exit 1; }
 
-need python3
-need git
+cd "$ROOT"
+sh scripts/smoke.sh
 
-mkdir -p "$BIN_DIR"
+rm -rf "$STAGE"
+mkdir -p "$STAGE/tools" "$BIN_DIR"
+cp tools/ryzc "$STAGE/tools/ryzc"
+cp aesh.ryz VERSION "$STAGE/"
+chmod 0755 "$STAGE/tools/ryzc"
 
-if [ -d "$APP_DIR/.git" ]; then
-  echo "Updating AeSH in $APP_DIR"
-  git -C "$APP_DIR" pull --ff-only
-else
-  echo "Cloning AeSH into $APP_DIR"
-  rm -rf "$APP_DIR"
-  git clone --depth=1 "$REPO_URL" "$APP_DIR"
+rm -rf "${APP_DIR}.previous"
+if [ -e "$APP_DIR" ]; then
+  mv "$APP_DIR" "${APP_DIR}.previous"
 fi
+mv "$STAGE" "$APP_DIR"
 
-cat > "$BIN_DIR/$NAME" <<EOF
+cat > "$BIN_DIR/aesh" <<EOF
 #!/usr/bin/env sh
 exec python3 "$APP_DIR/tools/ryzc" "$APP_DIR/aesh.ryz" "\$@"
 EOF
-chmod +x "$BIN_DIR/$NAME"
+chmod 0755 "$BIN_DIR/aesh"
 
-echo "Installed: $BIN_DIR/$NAME"
-"$BIN_DIR/$NAME" -c "help" >/dev/null
-echo "AeSH install smoke: ok"
+if ! "$BIN_DIR/aesh" -c help >/dev/null; then
+  rm -rf "$APP_DIR"
+  if [ -e "${APP_DIR}.previous" ]; then mv "${APP_DIR}.previous" "$APP_DIR"; fi
+  echo "AeSH install smoke failed; previous installation restored" >&2
+  exit 1
+fi
+rm -rf "${APP_DIR}.previous"
+echo "Installed AeSH $(cat VERSION) from reviewed checkout: $ROOT"
+echo "Launcher: $BIN_DIR/aesh"
