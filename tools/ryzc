@@ -96,7 +96,7 @@ def split_args(src: str) -> list[str]:
         if ch in ('"', "'"):
             quote = ch
             cur.append(ch)
-        elif ch in "([{" :
+        elif ch in "([{":
             depth += 1
             cur.append(ch)
         elif ch in ")]}":
@@ -107,6 +107,10 @@ def split_args(src: str) -> list[str]:
             cur = []
         else:
             cur.append(ch)
+    if quote:
+        raise ValueError("unterminated quoted string")
+    if depth != 0:
+        raise ValueError("unbalanced expression delimiters")
     if cur or src.strip():
         out.append("".join(cur).strip())
     return out
@@ -119,20 +123,20 @@ def eval_ryz_line(src: str) -> int:
     # Drop public demo imports.
     lines = [ln for ln in src.splitlines() if not ln.strip().startswith("import ")]
     src = "\n".join(lines).strip()
-    if src.startswith("fmt.println(") and src.endswith(")"):
-        inner = src[len("fmt.println(") : -1]
-        vals = []
-        for part in split_args(inner):
-            vals.append(str(safe_eval_expr(part)))
-        print(" ".join(vals))
-        return 0
-    if src.startswith("fmt.print(") and src.endswith(")"):
-        inner = src[len("fmt.print(") : -1]
-        vals = []
-        for part in split_args(inner):
-            vals.append(str(safe_eval_expr(part)))
-        print("".join(vals), end="")
-        return 0
+    try:
+        if src.startswith("fmt.println(") and src.endswith(")"):
+            inner = src[len("fmt.println(") : -1]
+            vals = [str(safe_eval_expr(part)) for part in split_args(inner)]
+            print(" ".join(vals))
+            return 0
+        if src.startswith("fmt.print(") and src.endswith(")"):
+            inner = src[len("fmt.print(") : -1]
+            vals = [str(safe_eval_expr(part)) for part in split_args(inner)]
+            print("".join(vals), end="")
+            return 0
+    except (SyntaxError, ValueError, ZeroDivisionError) as exc:
+        print(f"ryzc(public): invalid inline expression: {exc}", file=sys.stderr)
+        return 2
     print("ryzc(public): unsupported inline RYZ expression in public runner", file=sys.stderr)
     print(f"  {src}", file=sys.stderr)
     return 2
@@ -140,17 +144,22 @@ def eval_ryz_line(src: str) -> int:
 
 def load_history() -> list[str]:
     try:
-        return [ln.rstrip("\n") for ln in HIST_PATH.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    except FileNotFoundError:
+        return [
+            line.rstrip("\n")
+            for line in HIST_PATH.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except OSError:
         return []
 
 
 def append_history(line: str) -> None:
     try:
         HIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with HIST_PATH.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        with HIST_PATH.open("a", encoding="utf-8") as history_file:
+            history_file.write(line + "\n")
     except OSError:
+        # History is useful but must never prevent command execution.
         pass
 
 
@@ -163,7 +172,7 @@ class AeSH:
         print(f"aesh v{VERSION} - builtin commands:")
         print("  cd <dir>            change directory")
         print("  pwd                 print working directory")
-        print("  exit [code]         exit shell")
+        print("  exit [code]         exit shell with status 0..255")
         print("  help                this message")
         print("  status              show shell/runtime summary")
         print("  history             list command history")
@@ -184,12 +193,16 @@ class AeSH:
 
     def run_script(self, path: str) -> int:
         script = Path(path)
-        if not script.exists():
+        if not script.is_file():
             print(f"aesh: run: file not found: {path}", file=sys.stderr)
             return 1
         if script.resolve() == AESH_SOURCE.resolve():
             return self.repl()
-        text = script.read_text(encoding="utf-8")
+        try:
+            text = script.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"aesh: run: {exc}", file=sys.stderr)
+            return 1
         status = 0
         for raw in text.splitlines():
             line = raw.strip()
@@ -203,13 +216,47 @@ class AeSH:
                 break
         return status
 
+    def _dispatch_exit(self, stripped: str) -> bool | None:
+        if not (
+            stripped in {"exit", "quit"}
+            or stripped.startswith("exit ")
+            or stripped.startswith("quit ")
+        ):
+            return None
+        try:
+            parts = shlex.split(stripped)
+        except ValueError as exc:
+            print(f"aesh: exit: {exc}", file=sys.stderr)
+            self.last_status = 2
+            return True
+        if len(parts) > 2:
+            print("aesh: exit: expected at most one status code", file=sys.stderr)
+            self.last_status = 2
+            return True
+        code = 0
+        if len(parts) == 2:
+            try:
+                code = int(parts[1], 10)
+            except ValueError:
+                print(f"aesh: exit: numeric status required: {parts[1]}", file=sys.stderr)
+                self.last_status = 2
+                return True
+            if not 0 <= code <= 255:
+                print("aesh: exit: status must be between 0 and 255", file=sys.stderr)
+                self.last_status = 2
+                return True
+        self.last_status = code
+        return False
+
     def dispatch(self, line: str) -> bool:
         stripped = line.strip()
         if not stripped:
             return True
-        if stripped in {"exit", "quit"}:
-            self.last_status = 0
-            return False
+
+        exit_result = self._dispatch_exit(stripped)
+        if exit_result is not None:
+            return exit_result
+
         append_history(stripped)
         self.history.append(stripped)
 
@@ -220,8 +267,8 @@ class AeSH:
             self.last_status = self.status()
             return True
         if stripped == "history":
-            for i, item in enumerate(self.history):
-                print(f"{i}  {item}")
+            for index, item in enumerate(self.history):
+                print(f"{index}  {item}")
             self.last_status = 0
             return True
         if stripped == "pwd":
@@ -241,9 +288,18 @@ class AeSH:
                 print(f"aesh: cd: {exc}", file=sys.stderr)
                 self.last_status = 1
             return True
-        if stripped.startswith("run "):
-            parts = shlex.split(stripped)
-            self.last_status = self.run_script(parts[1]) if len(parts) >= 2 else 2
+        if stripped == "run" or stripped.startswith("run "):
+            try:
+                parts = shlex.split(stripped)
+            except ValueError as exc:
+                print(f"aesh: run: {exc}", file=sys.stderr)
+                self.last_status = 2
+                return True
+            if len(parts) != 2:
+                print("aesh: run: exactly one script path is required", file=sys.stderr)
+                self.last_status = 2
+                return True
+            self.last_status = self.run_script(parts[1])
             return True
         if stripped.startswith("ryz: "):
             self.last_status = eval_ryz_line(stripped[len("ryz: ") :])
@@ -252,7 +308,11 @@ class AeSH:
             self.last_status = eval_ryz_line(stripped[2:])
             return True
 
-        self.last_status = subprocess.call(stripped, shell=True)
+        try:
+            self.last_status = subprocess.call(stripped, shell=True)
+        except OSError as exc:
+            print(f"aesh: execute: {exc}", file=sys.stderr)
+            self.last_status = 126
         return True
 
     def repl(self) -> int:
@@ -269,12 +329,17 @@ class AeSH:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="ryzc", add_help=True)
-    p.add_argument("script", nargs="?", help="RYZ script to execute")
-    p.add_argument("script_args", nargs=argparse.REMAINDER)
-    p.add_argument("--check", dest="check", action="store_true", help="check script exists/parses enough for public runner")
-    p.add_argument("-e", dest="eval_src", help="evaluate a supported inline RYZ expression")
-    return p.parse_args(argv)
+    parser = argparse.ArgumentParser(prog="ryzc", add_help=True)
+    parser.add_argument("script", nargs="?", help="RYZ script to execute")
+    parser.add_argument("script_args", nargs=argparse.REMAINDER)
+    parser.add_argument(
+        "--check",
+        dest="check",
+        action="store_true",
+        help="check script exists/parses enough for public runner",
+    )
+    parser.add_argument("-e", dest="eval_src", help="evaluate a supported inline RYZ expression")
+    return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -284,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
             print("ryzc(public): --check requires a file", file=sys.stderr)
             return 2
         path = Path(argv[1])
-        if not path.exists():
+        if not path.is_file():
             print(f"ryzc(public): not found: {path}", file=sys.stderr)
             return 1
         print(f"ryzc(public): check ok: {path}")
@@ -301,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
 
     script = Path(argv[0])
     rest = argv[1:]
-    if not script.exists():
+    if not script.is_file():
         print(f"ryzc(public): not found: {script}", file=sys.stderr)
         return 1
 
