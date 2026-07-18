@@ -20,8 +20,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile public runner and tests
-        run: python3 -m py_compile tools/ryzc tests/test_public_runner.py
-      - name: Verify source and public runner
+        run: python3 -m compileall -q tools tests
+      - name: Verify source, public runner, and installer rollback
         run: make check
       - name: Verify native-source status contract
         run: |
