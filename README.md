@@ -11,6 +11,7 @@ That distinction matters:
 - a **native AeSH binary** must be built with the canonical RYZ toolchain and tested separately.
 
 **Version:** [`VERSION`](VERSION)  
+**MODOS component:** [`MODOS_COMPONENT.yaml`](MODOS_COMPONENT.yaml)  
 **License:** GPL-3.0-or-later
 
 ## Run from a reviewed checkout
@@ -83,15 +84,17 @@ It deliberately does not claim:
 - production shell completeness;
 - POSIX conformance certification.
 
-## Security boundary
+## Security and authority boundary
 
 AeSH is a shell. External commands supplied by the user are intentionally executed with the user's existing operating-system permissions. The compatibility runner does not sandbox those commands and must not be used as an authority broker.
+
+Local shell passthrough deliberately uses only the ordinary authority of the user running AeSH. It is not a MODOS domain-capability path. Consequential domain actions must be composed as typed requests and authorized separately by the PDK capability broker.
 
 Inline demo evaluation is restricted to a small AST allowlist and supported `fmt.print` / `fmt.println` forms. It does not expose Python imports, attribute access, calls, or arbitrary evaluation.
 
 History files may contain sensitive command text. Set `AESH_HISTORY` to a protected path or disable persistence in a future deployment wrapper where necessary.
 
-## Relationship to RYZ
+## Relationship to RYZ and MODOS
 
 The canonical language repository owns:
 
@@ -105,9 +108,10 @@ This repository owns:
 - the public AeSH source artifact;
 - the compatibility runner;
 - public packaging and release mechanics;
-- shell-specific smoke and behavior tests.
+- shell-specific smoke and behavior tests;
+- the local command-surface contract for future typed MODOS requests.
 
-Changes to language semantics should be made and tested in RYZ first, then deliberately synchronized here. This repository must not quietly grow into a divergent compiler fork.
+Changes to language semantics should be made and tested in RYZ first, then deliberately synchronized here. This repository must not quietly grow into a divergent compiler fork. Likewise, local shell execution must not be mistaken for fresh distributed authority merely because AeSH later gains typed MODOS request composition.
 
 ## Native build
 
@@ -135,7 +139,8 @@ A change should preserve:
 3. bounded inline evaluation;
 4. reproducible package layout;
 5. tag-only release publication;
-6. honest separation between RYZ source and compatibility execution.
+6. honest separation between RYZ source and compatibility execution;
+7. separation between local shell authority and typed MODOS domain authority.
 
 ## Status
 
