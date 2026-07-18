@@ -8,30 +8,38 @@ metadata:
   defaultBranch: master
 spec:
   roles:
-    - interactive-shell
-    - future-domain-shell
-    - command-surface
-  authority: proposal
+    - interactive-local-shell
+    - future-typed-domain-shell
+    - steward-command-surface
+  authority: local-enforcement
   inputs:
-    - steward-commands
+    - steward-local-commands
+    - typed-domain-request-intents
     - domain-object-views
     - capability-discovery
   outputs:
+    - local-process-results
     - typed-domain-requests
-    - local-command-results
+    - scoped-command-history
     - steward-visible-audit-context
   capabilitiesProvided:
-    - shell.interactive
+    - shell.local.execute
+    - shell.local.cwd.change
+    - shell.history.local
     - domain.request.compose
     - object.inspect
   capabilitiesRequired:
     - identity.user.local
+    - process.execute.local
+    - filesystem.cwd.local
+    - filesystem.history.local
     - capability.query
     - audit.read.scoped
   dataClasses:
     - public
     - private
+    - secret
     - untrusted
   failurePolicy: degrade-local
   promotionPolicy: signed-pr
-  notes: AeSH composes typed requests and presents results; it must not bypass the PDK capability broker or collapse domain and local authority.
+  notes: AeSH may directly execute steward-entered commands only on the local host under that user's ordinary authority. Consequential domain actions remain typed proposals routed through the PDK capability broker; local shell authority must never be mistaken for fresh domain authority.
