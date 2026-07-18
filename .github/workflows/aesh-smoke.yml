@@ -19,11 +19,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Compile public runner and tests
+        run: python3 -m py_compile tools/ryzc tests/test_public_runner.py
       - name: Verify source and public runner
         run: make check
+      - name: Verify native-source status contract
+        run: |
+          grep -F 'LAST_STATUS = fmt.system(stripped)' aesh.ryz
+          grep -F 'str.startswith(stripped, "exit ")' aesh.ryz
+          grep -F 'if stripped == "run"' aesh.ryz
       - name: Build release packages
         run: make package
-      - name: Verify package checksums
+      - name: Verify package checksums and version identity
         shell: bash
         run: |
           set -euo pipefail
