@@ -2,8 +2,12 @@ name: AeSH smoke
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, modos/epoch-0-component-contract ]
   pull_request:
+
+concurrency:
+  group: aesh-smoke-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:
@@ -12,8 +16,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
+      - name: Compile public runner and tests
+        run: python3 -m py_compile tools/ryzc tests/test_public_runner.py
       - name: Run public AeSH smoke test
         run: sh scripts/smoke.sh
+      - name: Run command-surface regression tests
+        run: python3 -m unittest discover -s tests -v
       - name: Launcher smoke
         run: sh bin/aesh -c "help"
+      - name: Verify native-source status contract
+        run: |
+          grep -F 'LAST_STATUS = fmt.system(stripped)' aesh.ryz
+          grep -F 'str.startswith(stripped, "exit ")' aesh.ryz
+          grep -F 'if stripped == "run"' aesh.ryz
