@@ -74,9 +74,11 @@ A custom programming language becomes much more credible when real system softwa
 
 - Builtin commands: `cd`, `pwd`, `exit`, `help`, `status`, `history`, `run`
 - Inline RYZ demo expression execution with `ryz:` or `:`
-- External command passthrough through the host shell
+- External command passthrough through the local user's host shell
 - Persistent history at `~/.aesh_history`
 - `-c <cmd>` non-interactive mode for scripting
+
+Local shell passthrough deliberately uses the ordinary authority of the user running AeSH. It is not a domain-capability path; future MODOS actions must be composed as typed requests and authorized separately by the PDK.
 
 ## Public runner versus private toolchain
 
@@ -89,7 +91,7 @@ The private RYZ repo still contains the full language/toolchain work, including 
 Native compilation still requires the private RYZ toolchain:
 
 ```bash
-python3 /path/to/ryz/bin/ryznative.py aesh.ryz -o aesh
+python3 /path/to/ryz/bin/ryznative.py aesh.ryz --out aesh
 ./aesh -c "help"
 ```
 
