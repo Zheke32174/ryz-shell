@@ -50,7 +50,7 @@ fn builtin_help() {
     fmt.println("aesh v" + VERSION + " - builtin commands:")
     fmt.println("  cd <dir>            change directory")
     fmt.println("  pwd                 print working directory")
-    fmt.println("  exit [code]         exit shell")
+    fmt.println("  exit [code]         exit shell with numeric status")
     fmt.println("  help                this message")
     fmt.println("  status              show env audit summary")
     fmt.println("  history             list command history")
@@ -67,6 +67,7 @@ fn builtin_status() {
     fmt.println("cwd:     " + sys.getcwd())
     fmt.println("history: " + fmt.sprintf("{}", list.len(history)) + " entries")
     fmt.println("uptime:  " + fmt.sprintf("{}", sys.now_unix()) + "s (unix)")
+    fmt.println("last:    " + fmt.sprintf("{}", LAST_STATUS))
 }
 
 fn builtin_history() {
@@ -138,10 +139,22 @@ fn dispatch(line: string) -> bool {
     let private_history = str.startswith(line, " ")
     let stripped = str.strip(line)
     if str.len(stripped) == 0 { return true }
+
     if stripped == "exit" or stripped == "quit" {
         LAST_STATUS = 0
         return false
     }
+    if str.startswith(stripped, "exit ") or str.startswith(stripped, "quit ") {
+        let parts = str.split(stripped, " ")
+        if list.len(parts) == 2 {
+            LAST_STATUS = str.to_int(parts[1])
+            return false
+        }
+        fmt.println("aesh: exit: expected at most one numeric status")
+        LAST_STATUS = 2
+        return true
+    }
+
     if not private_history { hist_save(stripped) }
 
     if stripped == "help"     { builtin_help(); LAST_STATUS = 0; return true }
@@ -161,6 +174,11 @@ fn dispatch(line: string) -> bool {
         return true
     }
 
+    if stripped == "run" {
+        fmt.println("aesh: run: path required")
+        LAST_STATUS = 2
+        return true
+    }
     if str.startswith(stripped, "run ") {
         let path = str.strip(str.slice(stripped, 4, str.len(stripped)))
         if str.len(path) > 0 {
