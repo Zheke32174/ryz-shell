@@ -1,0 +1,30 @@
+{
+  "schema": "aesh.public-runtime/v1",
+  "version_file": "VERSION",
+  "source": "aesh.ryz",
+  "runner": "tools/ryzc",
+  "launcher": "bin/aesh",
+  "runtime_kind": "constrained-compatibility-runner",
+  "native_compiler_included": false,
+  "full_ryz_parser_included": false,
+  "supported": [
+    "interactive-shell-demo",
+    "noninteractive-command",
+    "builtin-dispatch",
+    "history",
+    "external-command-passthrough",
+    "bounded-inline-expression-demo"
+  ],
+  "not_authorized": [
+    "privilege-escalation",
+    "policy-broker",
+    "sandbox-claim",
+    "production-login-shell-claim",
+    "full-language-compatibility-claim"
+  ],
+  "release": {
+    "tag_must_match_version": true,
+    "branch_push_publishes_release": false,
+    "checksums_required": true
+  }
+}

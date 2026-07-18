@@ -1,19 +1,44 @@
-name: AeSH smoke
+name: CI
 
 on:
   push:
-    branches: [ master, main ]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
+  verify:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
-      - name: Run public AeSH smoke test
-        run: sh scripts/smoke.sh
-      - name: Launcher smoke
-        run: sh bin/aesh -c "help"
+          python-version: '3.12'
+      - name: Compile public runner and tests
+        run: python3 -m compileall -q tools tests
+      - name: Verify source, public runner, and installer rollback
+        run: make check
+      - name: Verify native-source status contract
+        run: |
+          grep -F 'LAST_STATUS = fmt.system(stripped)' aesh.ryz
+          grep -F 'str.startswith(stripped, "exit ")' aesh.ryz
+          grep -F 'if stripped == "run"' aesh.ryz
+      - name: Build release packages
+        run: make package
+      - name: Verify package checksums and version identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c dist/*.sha256
+          test "$(cat VERSION)" = "$(grep -oE 'VERSION = \"[^\"]+' tools/ryzc | head -1 | cut -d\" -f2)"
+          test "$(cat VERSION)" = "$(grep -oE 'let VERSION[[:space:]]*=[[:space:]]*\"[^\"]+' aesh.ryz | head -1 | cut -d\" -f2)"
+      - name: Upload candidate packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: aesh-candidate-${{ github.sha }}
+          path: dist/*

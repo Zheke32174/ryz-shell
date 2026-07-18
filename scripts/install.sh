@@ -1,40 +1,71 @@
 #!/usr/bin/env sh
 set -eu
 
-OWNER="Zheke32174"
-REPO="ryz-shell"
-APP_DIR="${APP_DIR:-$HOME/.local/share/aesh}"
-BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
-NAME="aesh"
-REPO_URL="https://github.com/${OWNER}/${REPO}.git"
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+APP_DIR=${APP_DIR:-$HOME/.local/share/aesh}
+BIN_DIR=${BIN_DIR:-$HOME/.local/bin}
+LAUNCHER="$BIN_DIR/aesh"
+STAGE="${APP_DIR}.stage.$$"
+APP_BACKUP="${APP_DIR}.previous.$$"
+LAUNCHER_BACKUP="${LAUNCHER}.previous.$$"
+PUBLICATION_STARTED=0
+COMMITTED=0
 
-need() {
-  command -v "$1" >/dev/null 2>&1 || {
-    echo "Need $1 to install AeSH." >&2
-    exit 1
-  }
+cleanup() {
+  status=$?
+  trap - EXIT HUP INT TERM
+  rm -rf "$STAGE"
+
+  if [ "$PUBLICATION_STARTED" -eq 1 ] && [ "$COMMITTED" -eq 0 ]; then
+    rm -rf "$APP_DIR"
+    if [ -e "$APP_BACKUP" ] || [ -L "$APP_BACKUP" ]; then
+      mv "$APP_BACKUP" "$APP_DIR"
+    fi
+
+    rm -rf "$LAUNCHER"
+    if [ -e "$LAUNCHER_BACKUP" ] || [ -L "$LAUNCHER_BACKUP" ]; then
+      mv "$LAUNCHER_BACKUP" "$LAUNCHER"
+    fi
+
+    echo "AeSH installation failed; previous application and launcher restored" >&2
+  fi
+
+  exit "$status"
 }
 
-need python3
-need git
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
-mkdir -p "$BIN_DIR"
+command -v python3 >/dev/null 2>&1 || { echo "AeSH requires python3" >&2; exit 1; }
 
-if [ -d "$APP_DIR/.git" ]; then
-  echo "Updating AeSH in $APP_DIR"
-  git -C "$APP_DIR" pull --ff-only
-else
-  echo "Cloning AeSH into $APP_DIR"
-  rm -rf "$APP_DIR"
-  git clone --depth=1 "$REPO_URL" "$APP_DIR"
+cd "$ROOT"
+sh scripts/smoke.sh
+
+rm -rf "$STAGE" "$APP_BACKUP" "$LAUNCHER_BACKUP"
+mkdir -p "$STAGE/tools" "$(dirname "$APP_DIR")" "$BIN_DIR"
+cp tools/ryzc "$STAGE/tools/ryzc"
+cp aesh.ryz VERSION "$STAGE/"
+chmod 0755 "$STAGE/tools/ryzc"
+
+if [ -e "$APP_DIR" ] || [ -L "$APP_DIR" ]; then
+  mv "$APP_DIR" "$APP_BACKUP"
 fi
+if [ -e "$LAUNCHER" ] || [ -L "$LAUNCHER" ]; then
+  mv "$LAUNCHER" "$LAUNCHER_BACKUP"
+fi
+PUBLICATION_STARTED=1
 
-cat > "$BIN_DIR/$NAME" <<EOF
+mv "$STAGE" "$APP_DIR"
+cat > "$LAUNCHER" <<EOF
 #!/usr/bin/env sh
 exec python3 "$APP_DIR/tools/ryzc" "$APP_DIR/aesh.ryz" "\$@"
 EOF
-chmod +x "$BIN_DIR/$NAME"
+chmod 0755 "$LAUNCHER"
+"$LAUNCHER" -c help >/dev/null
 
-echo "Installed: $BIN_DIR/$NAME"
-"$BIN_DIR/$NAME" -c "help" >/dev/null
-echo "AeSH install smoke: ok"
+COMMITTED=1
+rm -rf "$APP_BACKUP" "$LAUNCHER_BACKUP"
+trap - EXIT HUP INT TERM
+
+echo "Installed AeSH $(cat VERSION) from reviewed checkout: $ROOT"
+echo "Launcher: $LAUNCHER"

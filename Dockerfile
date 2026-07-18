@@ -1,21 +1,24 @@
 FROM python:3.12-alpine
 
-ARG REPO_NAME="ryz-shell"
+ARG VERSION=dev
 ARG SOURCE_URL="https://github.com/Zheke32174/ryz-shell"
-ARG VERSION="0.1.0"
 
 LABEL org.opencontainers.image.title="AeSH"
-LABEL org.opencontainers.image.description="AeSH, the RYZ Adaptive Shell, packaged with the public compatibility runner."
+LABEL org.opencontainers.image.description="AeSH public compatibility runtime"
 LABEL org.opencontainers.image.source="$SOURCE_URL"
 LABEL org.opencontainers.image.version="$VERSION"
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 
+RUN addgroup -S aesh && adduser -S -G aesh -h /home/aesh aesh
 WORKDIR /opt/aesh
-COPY . /opt/aesh
+COPY --chmod=0755 tools/ryzc /opt/aesh/tools/ryzc
+COPY aesh.ryz VERSION /opt/aesh/
 
-RUN chmod +x /opt/aesh/tools/ryzc /opt/aesh/bin/aesh || true \
+RUN test "$VERSION" = "dev" || test "$VERSION" = "v$(cat VERSION)" \
     && python3 /opt/aesh/tools/ryzc --check /opt/aesh/aesh.ryz \
-    && python3 /opt/aesh/tools/ryzc /opt/aesh/aesh.ryz -c "help" >/dev/null
+    && AESH_HISTORY=/tmp/aesh-history python3 /opt/aesh/tools/ryzc /opt/aesh/aesh.ryz -c help >/dev/null
 
+USER aesh
+ENV AESH_HISTORY=/tmp/aesh-history
 ENTRYPOINT ["python3", "/opt/aesh/tools/ryzc", "/opt/aesh/aesh.ryz"]
 CMD ["-c", "help"]

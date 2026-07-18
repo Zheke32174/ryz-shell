@@ -4,11 +4,11 @@
 // Real implementation. No mocks. Reads a line, dispatches to:
 //   - builtin commands (cd, pwd, exit, help, status, history, run, compose)
 //   - RYZ scripts (any line starting with `ryz: ` or `: `)
-//   - external shell commands (everything else, via fmt.shell)
+//   - external shell commands (everything else, via fmt.system)
 //
 // AeSH is the bridge between the user and the ryz runtime: every command
-// runs through a single audited dispatcher so the env-compliance pass can
-// later attach metadata (provenance, exit code, duration) to every action.
+// runs through a single dispatcher so the env-compliance pass can later attach
+// metadata (provenance, exit code, duration) to every action.
 //
 // Public repo note: this source is runnable through ./tools/ryzc, a public
 // compatibility runner for AeSH. The private RYZ native backend remains in
@@ -27,7 +27,7 @@ let ENV_COMPLIANCE = "./env_compliance.ryz"
 
 // ─── history ─────────────────────────────────────────────────────────────────
 mut history = []
-mut LAST_STATUS = 0   // exit code of the last dispatched command (for `aesh -c` + $?)
+mut LAST_STATUS = 0
 
 fn hist_load() {
     if sys.path_exists(HIST_PATH) {
@@ -50,7 +50,7 @@ fn builtin_help() {
     fmt.println("aesh v" + VERSION + " - builtin commands:")
     fmt.println("  cd <dir>            change directory")
     fmt.println("  pwd                 print working directory")
-    fmt.println("  exit [code]         exit shell")
+    fmt.println("  exit [code]         exit shell with numeric status")
     fmt.println("  help                this message")
     fmt.println("  status              show env audit summary")
     fmt.println("  history             list command history")
@@ -59,6 +59,7 @@ fn builtin_help() {
     fmt.println("  ryz: <ryz-expr>     same as `:`")
     fmt.println("  audit               scan environment for compliance")
     fmt.println("  comply              convert env to ryz-substrate compliance")
+    fmt.println("  <space><command>    execute without saving to history")
 }
 
 fn builtin_status() {
@@ -66,6 +67,7 @@ fn builtin_status() {
     fmt.println("cwd:     " + sys.getcwd())
     fmt.println("history: " + fmt.sprintf("{}", list.len(history)) + " entries")
     fmt.println("uptime:  " + fmt.sprintf("{}", sys.now_unix()) + "s (unix)")
+    fmt.println("last:    " + fmt.sprintf("{}", LAST_STATUS))
 }
 
 fn builtin_history() {
@@ -80,95 +82,128 @@ fn builtin_cd(target: string) {
     let dest = if str.len(target) == 0 { HOME } else { target }
     if sys.path_is_dir(dest) {
         sys.chdir(dest)
+        LAST_STATUS = 0
     } else {
         fmt.println("aesh: cd: not a directory: " + dest)
+        LAST_STATUS = 1
     }
 }
 
 fn builtin_run_ryz(path: string) {
     if not sys.path_exists(path) {
         fmt.println("aesh: run: file not found: " + path)
+        LAST_STATUS = 1
         return
     }
     let result = fmt.exec(RYZC, path)
     fmt.print(result["stdout"])
     if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    LAST_STATUS = result["code"]
 }
 
 fn builtin_eval_ryz(src: string) {
-    // auto-import the common stdlib so `: fmt.println(...)` / str / list work inline.
     let full = "import \"std/fmt\"\nimport \"std/str\"\nimport \"std/list\"\n" + src
     let result = fmt.exec(RYZC, "-e", full)
     fmt.print(result["stdout"])
     if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    LAST_STATUS = result["code"]
 }
 
 fn builtin_audit() {
     if not sys.path_exists(ENV_COMPLIANCE) {
         fmt.println("aesh: audit unavailable: env_compliance.ryz is not bundled in this public repo")
+        LAST_STATUS = 2
         return
     }
     let result = fmt.exec(RYZC, ENV_COMPLIANCE, "audit")
     fmt.print(result["stdout"])
+    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    LAST_STATUS = result["code"]
 }
 
 fn builtin_comply() {
     if not sys.path_exists(ENV_COMPLIANCE) {
         fmt.println("aesh: comply unavailable: env_compliance.ryz is not bundled in this public repo")
+        LAST_STATUS = 2
         return
     }
     let result = fmt.exec(RYZC, ENV_COMPLIANCE, "comply")
     fmt.print(result["stdout"])
+    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    LAST_STATUS = result["code"]
 }
 
 // ─── dispatcher ──────────────────────────────────────────────────────────────
 
 fn dispatch(line: string) -> bool {
+    let private_history = str.startswith(line, " ")
     let stripped = str.strip(line)
     if str.len(stripped) == 0 { return true }
+
     if stripped == "exit" or stripped == "quit" {
+        LAST_STATUS = 0
         return false
     }
-    hist_save(stripped)
+    if str.startswith(stripped, "exit ") or str.startswith(stripped, "quit ") {
+        let parts = str.split(stripped, " ")
+        if list.len(parts) == 2 {
+            LAST_STATUS = str.to_int(parts[1])
+            return false
+        }
+        fmt.println("aesh: exit: expected at most one numeric status")
+        LAST_STATUS = 2
+        return true
+    }
 
-    if stripped == "help"     { builtin_help();     return true }
-    if stripped == "status"   { builtin_status();   return true }
-    if stripped == "history"  { builtin_history();  return true }
-    if stripped == "pwd"      { fmt.println(sys.getcwd()); return true }
-    if stripped == "audit"    { builtin_audit();    return true }
-    if stripped == "comply"   { builtin_comply();   return true }
+    if not private_history { hist_save(stripped) }
+
+    if stripped == "help"     { builtin_help(); LAST_STATUS = 0; return true }
+    if stripped == "status"   { builtin_status(); LAST_STATUS = 0; return true }
+    if stripped == "history"  { builtin_history(); LAST_STATUS = 0; return true }
+    if stripped == "pwd"      { fmt.println(sys.getcwd()); LAST_STATUS = 0; return true }
+    if stripped == "audit"    { builtin_audit(); return true }
+    if stripped == "comply"   { builtin_comply(); return true }
 
     if str.startswith(stripped, "cd ") or stripped == "cd" {
-        let arg = if str.len(stripped) > 2 { str.strip(stripped) } else { "" }
-        let parts = str.split(arg, " ")
-        let target = if list.len(parts) > 1 { parts[1] } else { "" }
+        let target = if stripped == "cd" {
+            ""
+        } else {
+            str.strip(str.slice(stripped, 3, str.len(stripped)))
+        }
         builtin_cd(target)
         return true
     }
 
+    if stripped == "run" {
+        fmt.println("aesh: run: path required")
+        LAST_STATUS = 2
+        return true
+    }
     if str.startswith(stripped, "run ") {
-        let parts = str.split(stripped, " ")
-        if list.len(parts) >= 2 { builtin_run_ryz(parts[1]) }
+        let path = str.strip(str.slice(stripped, 4, str.len(stripped)))
+        if str.len(path) > 0 {
+            builtin_run_ryz(path)
+        } else {
+            fmt.println("aesh: run: path required")
+            LAST_STATUS = 2
+        }
         return true
     }
 
     if str.startswith(stripped, "ryz: ") {
-        let src = str.replace(stripped, "ryz: ", "")
+        let src = str.slice(stripped, 5, str.len(stripped))
         builtin_eval_ryz(src)
         return true
     }
     if str.startswith(stripped, ": ") {
-        let src = str.replace(stripped, ": ", "")
+        let src = str.slice(stripped, 2, str.len(stripped))
         builtin_eval_ryz(src)
         return true
     }
 
-    // Falls through to the host shell for everything else, with the REAL terminal
-    // attached (fmt.system) — so interactive programs (claude, vim, top, less, ssh,
-    // REPLs) detect a TTY and work, and output streams live instead of being captured.
-    // (fmt.shell stays available for callers that need captured output, e.g. audits.)
-    let result = fmt.system(stripped)
-    LAST_STATUS = result["code"]
+    // The steward explicitly entered a local shell command. Domain actions do
+    // not travel this path; they must be composed as typed PDK requests.
+    LAST_STATUS = fmt.system(stripped)
     return true
 }
 
@@ -182,7 +217,6 @@ fn repl() {
         let cwd = sys.getcwd()
         let prompt = fmt.sprintf("aesh:{}> ", sys.path_basename(cwd))
         let line = fmt.read_line(prompt)
-        // nil means EOF (Ctrl-D); empty string means user just hit Enter
         if line == nil {
             fmt.println("")
             alive = false
@@ -193,11 +227,10 @@ fn repl() {
 }
 
 fn main() -> i32 {
-    // Argv mode: pass -c to run one-shot
     if list.len(sys.argv) >= 2 and sys.argv[0] == "-c" {
         dispatch(sys.argv[1])
         return LAST_STATUS
     }
     repl()
-    return 0
+    return LAST_STATUS
 }
