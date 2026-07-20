@@ -1,0 +1,48 @@
+apiVersion: modos.pleiades/v1alpha1
+kind: Component
+metadata:
+  name: ryz-shell-runtime
+  repository: Zheke32174/ryz-shell
+  visibility: public
+  lifecycle: operational
+  defaultBranch: master
+  labels:
+    modos.pleiades/subsystem: language-runtime
+    modos.pleiades/organ-class: interactive-shell
+spec:
+  roles:
+    - ryz-interactive-shell
+    - command-dispatch-surface
+    - local-runtime-adapter
+  authority: local-enforcement
+  inputs:
+    - interactive-command-intent
+    - ryz-language-services
+    - local-environment-state
+  outputs:
+    - command-results
+    - shell-diagnostics
+    - bounded-local-process-intent
+  capabilitiesProvided:
+    - shell.ryz.interactive@v1
+  capabilitiesRequired:
+    - language.ryz.execute@v1
+    - host.kernel.local@v1alpha1
+  dataClasses:
+    - public
+    - internal
+    - untrusted
+  failurePolicy: fail-closed
+  promotionPolicy: evidence-gated
+  relations:
+    - type: depends-on
+      targetRef: repo:Zheke32174/ryz
+      scope: runtime
+      required: true
+    - type: governed-by
+      targetRef: repo:Zheke32174/pleiades
+      scope: governance
+      required: true
+  notes: >-
+    The shell is a local interaction and dispatch surface over Ryz. It cannot
+    widen the authority of a command or infer domain authority from execution.
