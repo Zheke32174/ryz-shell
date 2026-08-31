@@ -85,22 +85,48 @@ fn builtin_cd(target: string) {
     }
 }
 
+// Every RYZ execution goes through exactly one place. AeSH requires
+// language.ryz.execute@v1 (MODOS_COMPONENT.yaml) and provides none of it
+// itself, so the runner is a seam rather than four scattered call sites: swap
+// this one function to change how the shell executes RYZ.
+//
+// fmt.shell, not fmt.exec: exec is variadic and returns a dict, and the RYZ
+// native toolchain has neither — one word is the only value type, so there are
+// no maps. fmt.shell exists in both the compatibility runner and the native
+// compiler and returns stdout as a string, which is what both call sites used
+// anyway. stderr is folded in with 2>&1 because a single stream is all a string
+// return can carry; the shell prints diagnostics either way.
+// POSIX single-quote quoting, built from character codes so it does not depend on
+// RYZ escape-sequence handling: wrap in quotes and replace each embedded quote
+// with '\''. Needed because ryz_exec goes through a shell — the original
+// fmt.exec took an argv array and never had to quote anything. Passing the source
+// through a temp file was the earlier attempt, but the runner treats a bare path
+// as "start a REPL", not "run this file", so -e is the only eval entry point.
+fn sh_quote(s: string) -> string {
+    let q = str.chr(39)
+    let bs = str.chr(92)
+    return q + str.replace(s, q, q + bs + q + q) + q
+}
+
+fn ryz_exec(argline: string) -> string {
+    // Invoked through python3 rather than relying on the shebang: tools/ryzc ships
+    // mode 644, so executing it directly fails with "Permission denied". bin/aesh
+    // already launches it the same way.
+    return fmt.shell("python3 " + RYZC + " " + argline + " 2>&1")
+}
+
 fn builtin_run_ryz(path: string) {
     if not sys.path_exists(path) {
         fmt.println("aesh: run: file not found: " + path)
         return
     }
-    let result = fmt.exec(RYZC, path)
-    fmt.print(result["stdout"])
-    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    fmt.print(ryz_exec(path))
 }
 
 fn builtin_eval_ryz(src: string) {
     // auto-import the common stdlib so `: fmt.println(...)` / str / list work inline.
     let full = "import \"std/fmt\"\nimport \"std/str\"\nimport \"std/list\"\n" + src
-    let result = fmt.exec(RYZC, "-e", full)
-    fmt.print(result["stdout"])
-    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    fmt.print(ryz_exec("-e " + sh_quote(full)))
 }
 
 fn builtin_audit() {
@@ -108,8 +134,7 @@ fn builtin_audit() {
         fmt.println("aesh: audit unavailable: env_compliance.ryz is not bundled in this public repo")
         return
     }
-    let result = fmt.exec(RYZC, ENV_COMPLIANCE, "audit")
-    fmt.print(result["stdout"])
+    fmt.print(ryz_exec(ENV_COMPLIANCE + " audit"))
 }
 
 fn builtin_comply() {
@@ -117,8 +142,7 @@ fn builtin_comply() {
         fmt.println("aesh: comply unavailable: env_compliance.ryz is not bundled in this public repo")
         return
     }
-    let result = fmt.exec(RYZC, ENV_COMPLIANCE, "comply")
-    fmt.print(result["stdout"])
+    fmt.print(ryz_exec(ENV_COMPLIANCE + " comply"))
 }
 
 // ─── dispatcher ──────────────────────────────────────────────────────────────
@@ -167,8 +191,12 @@ fn dispatch(line: string) -> bool {
     // attached (fmt.system) — so interactive programs (claude, vim, top, less, ssh,
     // REPLs) detect a TTY and work, and output streams live instead of being captured.
     // (fmt.shell stays available for callers that need captured output, e.g. audits.)
-    let result = fmt.system(stripped)
-    LAST_STATUS = result["code"]
+    // fmt.system returns the exit code as an integer, not a record. Indexing it
+    // as a map made the native shell treat the code as a pointer and dereference
+    // it, so every non-zero status segfaulted: `false` and `exit 3` crashed while
+    // `true` and `exit 0` looked fine. The public runner never reached this line
+    // — it reimplements dispatch in Python — so the fault only existed natively.
+    LAST_STATUS = fmt.system(stripped)
     return true
 }
 
