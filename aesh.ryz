@@ -85,22 +85,39 @@ fn builtin_cd(target: string) {
     }
 }
 
+// Every RYZ execution goes through exactly one place. AeSH requires
+// language.ryz.execute@v1 (MODOS_COMPONENT.yaml) and provides none of it
+// itself, so the runner is a seam rather than four scattered call sites: swap
+// this one function to change how the shell executes RYZ.
+//
+// fmt.shell, not fmt.exec: exec is variadic and returns a dict, and the RYZ
+// native toolchain has neither — one word is the only value type, so there are
+// no maps. fmt.shell exists in both the compatibility runner and the native
+// compiler and returns stdout as a string, which is what both call sites used
+// anyway. stderr is folded in with 2>&1 because a single stream is all a string
+// return can carry; the shell prints diagnostics either way.
+fn ryz_exec(argline: string) -> string {
+    return fmt.shell(RYZC + " " + argline + " 2>&1")
+}
+
 fn builtin_run_ryz(path: string) {
     if not sys.path_exists(path) {
         fmt.println("aesh: run: file not found: " + path)
         return
     }
-    let result = fmt.exec(RYZC, path)
-    fmt.print(result["stdout"])
-    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    fmt.print(ryz_exec(path))
 }
 
 fn builtin_eval_ryz(src: string) {
     // auto-import the common stdlib so `: fmt.println(...)` / str / list work inline.
     let full = "import \"std/fmt\"\nimport \"std/str\"\nimport \"std/list\"\n" + src
-    let result = fmt.exec(RYZC, "-e", full)
-    fmt.print(result["stdout"])
-    if str.len(result["stderr"]) > 0 { fmt.print(result["stderr"]) }
+    // Via a temp file rather than -e: the source is arbitrary user input and
+    // embedding it in a command line would make shell quoting part of the
+    // language surface. A file has no quoting.
+    let tmp = sys.mkstemp("/tmp/aesh-eval-XXXXXX")
+    fmt.write_file(tmp, full)
+    fmt.print(ryz_exec(tmp))
+    sys.remove(tmp)
 }
 
 fn builtin_audit() {
@@ -108,8 +125,7 @@ fn builtin_audit() {
         fmt.println("aesh: audit unavailable: env_compliance.ryz is not bundled in this public repo")
         return
     }
-    let result = fmt.exec(RYZC, ENV_COMPLIANCE, "audit")
-    fmt.print(result["stdout"])
+    fmt.print(ryz_exec(ENV_COMPLIANCE + " audit"))
 }
 
 fn builtin_comply() {
@@ -117,8 +133,7 @@ fn builtin_comply() {
         fmt.println("aesh: comply unavailable: env_compliance.ryz is not bundled in this public repo")
         return
     }
-    let result = fmt.exec(RYZC, ENV_COMPLIANCE, "comply")
-    fmt.print(result["stdout"])
+    fmt.print(ryz_exec(ENV_COMPLIANCE + " comply"))
 }
 
 // ─── dispatcher ──────────────────────────────────────────────────────────────
