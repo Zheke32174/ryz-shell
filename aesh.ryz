@@ -96,8 +96,23 @@ fn builtin_cd(target: string) {
 // compiler and returns stdout as a string, which is what both call sites used
 // anyway. stderr is folded in with 2>&1 because a single stream is all a string
 // return can carry; the shell prints diagnostics either way.
+// POSIX single-quote quoting, built from character codes so it does not depend on
+// RYZ escape-sequence handling: wrap in quotes and replace each embedded quote
+// with '\''. Needed because ryz_exec goes through a shell — the original
+// fmt.exec took an argv array and never had to quote anything. Passing the source
+// through a temp file was the earlier attempt, but the runner treats a bare path
+// as "start a REPL", not "run this file", so -e is the only eval entry point.
+fn sh_quote(s: string) -> string {
+    let q = str.chr(39)
+    let bs = str.chr(92)
+    return q + str.replace(s, q, q + bs + q + q) + q
+}
+
 fn ryz_exec(argline: string) -> string {
-    return fmt.shell(RYZC + " " + argline + " 2>&1")
+    // Invoked through python3 rather than relying on the shebang: tools/ryzc ships
+    // mode 644, so executing it directly fails with "Permission denied". bin/aesh
+    // already launches it the same way.
+    return fmt.shell("python3 " + RYZC + " " + argline + " 2>&1")
 }
 
 fn builtin_run_ryz(path: string) {
@@ -111,13 +126,7 @@ fn builtin_run_ryz(path: string) {
 fn builtin_eval_ryz(src: string) {
     // auto-import the common stdlib so `: fmt.println(...)` / str / list work inline.
     let full = "import \"std/fmt\"\nimport \"std/str\"\nimport \"std/list\"\n" + src
-    // Via a temp file rather than -e: the source is arbitrary user input and
-    // embedding it in a command line would make shell quoting part of the
-    // language surface. A file has no quoting.
-    let tmp = sys.mkstemp("/tmp/aesh-eval-XXXXXX")
-    fmt.write_file(tmp, full)
-    fmt.print(ryz_exec(tmp))
-    sys.remove(tmp)
+    fmt.print(ryz_exec("-e " + sh_quote(full)))
 }
 
 fn builtin_audit() {
@@ -182,8 +191,12 @@ fn dispatch(line: string) -> bool {
     // attached (fmt.system) — so interactive programs (claude, vim, top, less, ssh,
     // REPLs) detect a TTY and work, and output streams live instead of being captured.
     // (fmt.shell stays available for callers that need captured output, e.g. audits.)
-    let result = fmt.system(stripped)
-    LAST_STATUS = result["code"]
+    // fmt.system returns the exit code as an integer, not a record. Indexing it
+    // as a map made the native shell treat the code as a pointer and dereference
+    // it, so every non-zero status segfaulted: `false` and `exit 3` crashed while
+    // `true` and `exit 0` looked fine. The public runner never reached this line
+    // — it reimplements dispatch in Python — so the fault only existed natively.
+    LAST_STATUS = fmt.system(stripped)
     return true
 }
 

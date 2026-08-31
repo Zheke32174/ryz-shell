@@ -13,9 +13,11 @@ grep -q "hi" /tmp/aesh-echo.txt
 python3 tools/ryzc -e 'fmt.println("x", 6*7)' >/tmp/aesh-eval.txt
 grep -q "x 42" /tmp/aesh-eval.txt
 
-# The RYZ-execution builtins. These route through ryz_exec, the single seam the
-# shell uses for language.ryz.execute@v1, and had no coverage before — help/pwd/
-# echo exercise dispatch and external commands but never touch it.
+# NOTE ON WHAT THIS SUITE ACTUALLY COVERS: tools/ryzc reimplements AeSH's dispatch
+# in Python and does not interpret aesh.ryz — `--check` only tests that the file
+# exists. So every case here exercises the runner, not the shell source. These two
+# assert the runner's inline-eval and run-guard behaviour, which is worth keeping,
+# but they do NOT cover aesh.ryz's own ryz_exec. That is scripts/native-smoke.sh.
 python3 tools/ryzc aesh.ryz -c ': fmt.println("inline", 6*7)' >/tmp/aesh-inline.txt
 grep -q "inline 42" /tmp/aesh-inline.txt
 # Both streams, and the exit status is not the assertion: a shell reporting a
